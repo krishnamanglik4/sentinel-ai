@@ -1,16 +1,14 @@
-# Dockerfile for Sentinel AI Production Deployment
-FROM python:3.11-slim
+# Dockerfile for Sentinel AI Cloud Deployment
+FROM python:3.10-slim
 
-# Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive \
     PORT=8000
 
 WORKDIR /app
 
-# Install system dependencies for OpenCV and PyMuPDF
+# Install system libraries for OpenCV and PyMuPDF
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
     libgl1-mesa-glx \
     libglib2.0-0 \
     ffmpeg \
@@ -18,7 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy backend requirements & install dependencies
 COPY backend/requirements.txt /app/backend/requirements.txt
-RUN pip install --no-cache-dir -r /app/backend/requirements.txt email-validator
+RUN pip install --no-cache-dir --prefer-binary -r /app/backend/requirements.txt
 
 # Copy backend & frontend built dist
 COPY backend /app/backend
