@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: sentinel-ai
+    env: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: PORT
+        value: 8000

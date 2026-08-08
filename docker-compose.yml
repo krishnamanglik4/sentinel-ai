@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  sentinel-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://sentinel_user:sentinel_pass@postgres-db:5432/sentinel_db
+      - SECRET_KEY=production_sentinel_ai_super_secret_jwt_key_2026
+      - ALLOWED_ORIGINS=*
+    depends_on:
+      - postgres-db
+    volumes:
+      - sentinel-uploads:/app/backend/uploads
+
+  postgres-db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=sentinel_user
+      - POSTGRES_PASSWORD=sentinel_pass
+      - POSTGRES_DB=sentinel_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+volumes:
+  sentinel-uploads:
+  postgres-data:

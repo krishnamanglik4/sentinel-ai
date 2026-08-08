@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+backend/__pycache__/
+backend/*/__pycache__/
+*.pyc
+
+# Local Environment & SQLite Database
+.env
+backend/.env
+sentinel.db
+backend/sentinel.db
+
+# Media Uploads & Temp Files
+backend/uploads/*
+!backend/uploads/.gitkeep
+uploads/*
+
+# Build Artifacts
+frontend/dist/
