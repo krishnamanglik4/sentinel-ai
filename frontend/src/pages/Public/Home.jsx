@@ -14,7 +14,10 @@ import {
   AlertTriangle, 
   Search, 
   Lock, 
-  Zap 
+  Zap,
+  Activity,
+  Layers,
+  FileCheck
 } from 'lucide-react';
 import { Navbar } from '../../components/layout/Navbar';
 import { ScoreMeter } from '../../components/ui/ScoreMeter';
@@ -22,8 +25,8 @@ import { ScoreMeter } from '../../components/ui/ScoreMeter';
 export const Home = () => {
   const modules = [
     {
-      title: "Image & Document Forensic Scanner",
-      desc: "Automatic document/photo classification, Error Level Analysis (ELA), metadata parsing, and bounding box tampering overlays.",
+      title: "Image & Document Forensics",
+      desc: "Automatic document/photo classification, Error Level Analysis (ELA), EXIF metadata parsing, and tampered text region overlays.",
       icon: ImageIcon,
       path: "/app/scanner/image",
       badge: "Vision AI"
@@ -43,15 +46,15 @@ export const Home = () => {
       badge: "NLP Engine"
     },
     {
-      title: "AI-Generated Voice Clone Scanner",
-      desc: "Acoustic MFCC feature extraction, Mel spectrogram rendering, and synthetic vocoder pitch consistency inspection.",
+      title: "AI Voice Clone Scanner",
+      desc: "Acoustic MFCC feature extraction, Mel-Spectrogram plot rendering, and synthetic vocoder pitch consistency inspection.",
       icon: Mic,
       path: "/app/scanner/audio",
       badge: "Audio AI"
     },
     {
       title: "Deepfake Video Scanner",
-      desc: "Facial ROI temporal sampling, face detection, and boundary texture discontinuity scoring across video frames.",
+      desc: "Facial ROI keyframe sampling, OpenCV face detection, and boundary texture discontinuity scoring across video streams.",
       icon: Video,
       path: "/app/scanner/video",
       badge: "Deep Learning"
@@ -70,7 +73,7 @@ export const Home = () => {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
+            transition={{ duration: 0.5 }}
             className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-semibold tracking-wide mb-8 shadow-glow-cyan"
           >
             <Zap className="w-3.5 h-3.5" />
@@ -80,7 +83,7 @@ export const Home = () => {
           <motion.h1
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.1 }}
+            transition={{ duration: 0.5, delay: 0.1 }}
             className="text-4xl sm:text-6xl lg:text-7xl font-extrabold font-outfit tracking-tight text-white max-w-4xl mx-auto leading-tight"
           >
             Detect. Verify. <span className="text-gradient-cyan">Stay Safe.</span>
@@ -89,7 +92,7 @@ export const Home = () => {
           <motion.p
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.2 }}
+            transition={{ duration: 0.5, delay: 0.2 }}
             className="mt-6 text-lg sm:text-xl text-slate-400 max-w-2xl mx-auto leading-relaxed"
           >
             AI-powered protection against deepfakes, phishing, digital fraud, voice clones, and manipulated media with instant trust scoring and Explainable AI.
@@ -98,7 +101,7 @@ export const Home = () => {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.3 }}
+            transition={{ duration: 0.5, delay: 0.3 }}
             className="mt-10 flex flex-wrap items-center justify-center gap-4"
           >
             <Link
@@ -120,7 +123,7 @@ export const Home = () => {
           <div className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-4 max-w-4xl mx-auto pt-8 border-t border-slate-800/60 text-left">
             <div>
               <div className="text-2xl font-bold font-outfit text-white">99.2%</div>
-              <div className="text-xs text-slate-400">Scam Detection Accuracy</div>
+              <div className="text-xs text-slate-400">Scam Intent Accuracy</div>
             </div>
             <div>
               <div className="text-2xl font-bold font-outfit text-cyan-400">&lt; 1.5s</div>
@@ -134,6 +137,41 @@ export const Home = () => {
               <div className="text-2xl font-bold font-outfit text-emerald-400">0–100</div>
               <div className="text-xs text-slate-400">Normalized Risk Score</div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Workflow Diagram Section */}
+      <section className="py-16 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full border-b border-slate-800/60">
+        <div className="text-center max-w-3xl mx-auto mb-12">
+          <h2 className="text-2xl sm:text-3xl font-extrabold font-outfit text-white tracking-tight">
+            4-Step Forensic Workflow
+          </h2>
+          <p className="mt-2 text-slate-400 text-xs sm:text-sm">
+            How Sentinel AI processes digital media to produce transparent safety intelligence
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="glass-panel p-5 rounded-2xl border-slate-800 relative">
+            <div className="text-cyan-400 font-mono font-bold text-xs mb-2">STEP 01</div>
+            <h3 className="font-bold font-outfit text-white text-base mb-1">User Input</h3>
+            <p className="text-xs text-slate-400">Upload single image, URL, SMS text, audio, or video clip.</p>
+          </div>
+          <div className="glass-panel p-5 rounded-2xl border-slate-800 relative">
+            <div className="text-cyan-400 font-mono font-bold text-xs mb-2">STEP 02</div>
+            <h3 className="font-bold font-outfit text-white text-base mb-1">Feature Extraction</h3>
+            <p className="text-xs text-slate-400">Computer vision ELA, MFCC audio envelopes, and TF-IDF NLP.</p>
+          </div>
+          <div className="glass-panel p-5 rounded-2xl border-slate-800 relative">
+            <div className="text-cyan-400 font-mono font-bold text-xs mb-2">STEP 03</div>
+            <h3 className="font-bold font-outfit text-white text-base mb-1">Risk Engine</h3>
+            <p className="text-xs text-slate-400">Aggregates signals into normalized 0–100 Risk & Trust Scores.</p>
+          </div>
+          <div className="glass-panel p-5 rounded-2xl border-slate-800 relative">
+            <div className="text-cyan-400 font-mono font-bold text-xs mb-2">STEP 04</div>
+            <h3 className="font-bold font-outfit text-white text-base mb-1">Explainable Result</h3>
+            <p className="text-xs text-slate-400">Outputs indicator checklist, region overlays, & safety guidelines.</p>
           </div>
         </div>
       </section>
@@ -158,12 +196,12 @@ export const Home = () => {
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
-                transition={{ duration: 0.4, delay: idx * 0.1 }}
+                transition={{ duration: 0.4, delay: idx * 0.08 }}
                 className="glass-panel-interactive p-6 rounded-2xl flex flex-col justify-between"
               >
                 <div>
                   <div className="flex items-center justify-between mb-4">
-                    <div className="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+                    <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-glow-cyan">
                       <Icon className="w-6 h-6" />
                     </div>
                     <span className="px-2.5 py-1 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-mono text-cyan-400 font-bold">
@@ -185,10 +223,10 @@ export const Home = () => {
             );
           })}
 
-          {/* Combined Risk Engine Card */}
+          {/* Unified Risk Engine Card */}
           <div className="glass-panel p-6 rounded-2xl border-cyan-500/40 bg-gradient-to-br from-cyan-950/20 via-slate-900 to-violet-950/20 flex flex-col justify-between">
             <div>
-              <div className="w-12 h-12 rounded-xl bg-violet-500/10 border border-violet-500/30 flex items-center justify-center text-violet-400 mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-violet-500/10 border border-violet-500/30 flex items-center justify-center text-violet-400 mb-4 shadow-glow-violet">
                 <Cpu className="w-6 h-6" />
               </div>
               <h3 className="text-xl font-bold font-outfit text-white mb-2">Unified Risk Engine</h3>
@@ -198,57 +236,6 @@ export const Home = () => {
             </div>
             <div className="text-xs font-mono text-violet-400 bg-violet-950/40 border border-violet-500/30 p-2.5 rounded-xl">
               ✓ Standardized 0-100 Normalized Scale
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Trust Score & XAI Explanation Section */}
-      <section className="py-20 border-t border-slate-800/80 bg-slate-900/40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-          <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-violet-500/10 border border-violet-500/30 text-violet-400 text-xs font-semibold mb-4">
-              EXPLAINABLE AI (XAI)
-            </div>
-            <h2 className="text-3xl sm:text-4xl font-extrabold font-outfit text-white tracking-tight leading-tight">
-              Transparent & Actionable Risk Intelligence
-            </h2>
-            <p className="mt-4 text-slate-400 text-base leading-relaxed">
-              Sentinel AI never leaves you guessing with black-box scores. Every result provides exact signal breakdowns, visual bounding boxes for tampered text, and clear recommended actions.
-            </p>
-
-            <ul className="mt-8 space-y-4 text-sm text-slate-300">
-              <li className="flex items-start gap-3">
-                <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-                <span><strong className="text-white">Normalized 0–100 Risk Score:</strong> Unified risk evaluation scale from SAFE (0-20) to CRITICAL (81-100).</span>
-              </li>
-              <li className="flex items-start gap-3">
-                <CheckCircle2 className="w-5 h-5 text-cyan-400 shrink-0 mt-0.5" />
-                <span><strong className="text-white">Visual Region Overlays:</strong> Highlights tampered text fields and cloned pixel regions directly on documents.</span>
-              </li>
-              <li className="flex items-start gap-3">
-                <CheckCircle2 className="w-5 h-5 text-violet-400 shrink-0 mt-0.5" />
-                <span><strong className="text-white">Actionable Next Steps:</strong> Provides non-technical safety guidelines tailored to the specific threat.</span>
-              </li>
-            </ul>
-          </div>
-
-          <div className="glass-panel p-8 rounded-3xl border-slate-700 relative overflow-hidden flex flex-col items-center justify-center text-center">
-            <div className="flex items-center gap-8 mb-6">
-              <ScoreMeter score={87} label="Risk Score" size={140} />
-              <ScoreMeter score={13} label="Trust Score" size={140} />
-            </div>
-
-            <div className="w-full bg-red-950/40 border border-red-500/30 p-4 rounded-2xl text-left space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-bold text-red-400 uppercase">HIGH RISK DETECTED</span>
-                <span className="text-xs text-slate-400">Confidence: 91%</span>
-              </div>
-              <p className="text-xs text-slate-300 font-mono">
-                ✓ Compression anomaly (ELA error: 22.4)<br/>
-                ✓ Font/layout inconsistency near name field<br/>
-                ✓ Metadata traces of photo editing software
-              </p>
             </div>
           </div>
         </div>

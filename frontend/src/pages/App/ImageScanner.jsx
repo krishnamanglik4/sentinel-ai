@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
-import { Upload, Image as ImageIcon, FileText, AlertTriangle, ShieldCheck, CheckCircle2, Eye, Sparkles } from 'lucide-react';
+import { Upload, Image as ImageIcon, FileText, AlertTriangle, CheckCircle2, Eye, Sparkles, RefreshCw } from 'lucide-react';
 import { scanImageApi } from '../../api/scans';
-import { RiskBadge } from '../../components/ui/RiskBadge';
-import { ScoreMeter } from '../../components/ui/ScoreMeter';
+import { AnalysisProgress } from '../../components/ui/AnalysisProgress';
+import { AnalysisResultCard } from '../../components/ui/AnalysisResultCard';
 import { SuspiciousCanvas } from '../../components/ui/SuspiciousCanvas';
 
 export const ImageScanner = () => {
   const [file, setFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState('');
+  const [fileMeta, setFileMeta] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
@@ -18,6 +19,11 @@ export const ImageScanner = () => {
     if (selected) {
       setFile(selected);
       setPreviewUrl(URL.createObjectURL(selected));
+      setFileMeta({
+        name: selected.name,
+        sizeMB: (selected.size / (1024 * 1024)).toFixed(2),
+        type: selected.type || 'image/jpeg'
+      });
       setResult(null);
       setError('');
     }
@@ -37,10 +43,17 @@ export const ImageScanner = () => {
       const res = await scanImageApi(formData);
       setResult(res);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Image analysis failed. Please try again.');
+      setError(err.response?.data?.detail || 'Image forensic scan failed. Please check file type.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const resetForm = () => {
+    setFile(null);
+    setPreviewUrl('');
+    setResult(null);
+    setError('');
   };
 
   return (
@@ -52,12 +65,12 @@ export const ImageScanner = () => {
         </div>
         <h1 className="text-2xl font-bold font-outfit text-white">Image & Document Manipulation Scanner</h1>
         <p className="text-xs text-slate-400">
-          Upload any image or PDF document. System automatically classifies file type and runs Error Level Analysis (ELA), EXIF metadata parsing, and tampered region bounding box detection.
+          Upload any single image or PDF. Sentinel AI automatically classifies file type, executing ELA, EXIF metadata parsing, and tampered region bounding box detection.
         </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Upload Column */}
+        {/* Upload & Progress Column */}
         <div className="lg:col-span-5 space-y-4">
           <form onSubmit={handleUpload} className="glass-panel p-6 rounded-2xl border-slate-800 space-y-4">
             <div className="relative border-2 border-dashed border-slate-700 hover:border-cyan-500/50 rounded-2xl p-8 text-center bg-slate-900/50 transition-all cursor-pointer group">
@@ -68,15 +81,23 @@ export const ImageScanner = () => {
                 className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
               />
               <div className="flex flex-col items-center">
-                <div className="w-12 h-12 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-cyan-400 group-hover:scale-110 transition-transform mb-3">
+                <div className="w-12 h-12 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center text-cyan-400 group-hover:scale-110 transition-transform mb-3 shadow-lg">
                   <Upload className="w-6 h-6" />
                 </div>
                 <p className="text-sm font-semibold text-slate-200">
-                  {file ? file.name : "Drop Image or Document here"}
+                  {file ? file.name : "Drop Image or PDF Document"}
                 </p>
                 <p className="text-xs text-slate-500 mt-1">Supports JPG, PNG, WEBP, BMP, PDF (Max 50MB)</p>
               </div>
             </div>
+
+            {fileMeta && (
+              <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800 text-xs space-y-1 font-mono text-slate-400">
+                <div className="flex justify-between"><span className="text-slate-500">File Name:</span><span className="text-slate-200 font-bold truncate max-w-[180px]">{fileMeta.name}</span></div>
+                <div className="flex justify-between"><span className="text-slate-500">File Size:</span><span className="text-slate-200">{fileMeta.sizeMB} MB</span></div>
+                <div className="flex justify-between"><span className="text-slate-500">MIME Type:</span><span className="text-slate-200">{fileMeta.type}</span></div>
+              </div>
+            )}
 
             {previewUrl && (
               <div className="relative rounded-xl overflow-hidden border border-slate-800 bg-slate-950 p-2 flex justify-center">
@@ -85,42 +106,57 @@ export const ImageScanner = () => {
             )}
 
             {error && (
-              <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs">
-                {error}
+              <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{error}</span>
               </div>
             )}
 
-            <button
-              type="submit"
-              disabled={!file || loading}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-500 via-blue-600 to-violet-600 text-black font-extrabold text-sm hover:shadow-glow-cyan transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              <Sparkles className="w-4 h-4" />
-              <span>{loading ? "Analyzing Media Forensics..." : "Run Forensic Scan"}</span>
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={!file || loading}
+                className="flex-1 py-3 rounded-xl bg-gradient-to-r from-cyan-500 via-blue-600 to-violet-600 text-black font-extrabold text-sm hover:shadow-glow-cyan transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>{loading ? "Analyzing..." : "Analyze Media"}</span>
+              </button>
+              {file && (
+                <button
+                  type="button"
+                  onClick={resetForm}
+                  className="px-3.5 py-3 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white text-xs font-semibold"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+              )}
+            </div>
           </form>
+
+          {loading && (
+            <AnalysisProgress
+              steps={[
+                "Validating image file container & header",
+                "Determining auto classification (Document vs Photo)",
+                "Executing Error Level Analysis (ELA)",
+                "Scanning noise variance & text bounding boxes",
+                "Computing normalized Risk & Trust scores"
+              ]}
+            />
+          )}
         </div>
 
         {/* Results Column */}
         <div className="lg:col-span-7">
           {result ? (
-            <div className="glass-panel p-6 rounded-2xl border-slate-800 space-y-6">
-              {/* Header */}
-              <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-800">
-                <div>
-                  <span className="text-[10px] font-mono uppercase text-slate-400">AUTOMATIC CLASSIFICATION</span>
-                  <div className="text-base font-bold font-outfit text-cyan-400 uppercase flex items-center gap-2">
-                    {result.metadata_info?.image_type === 'document' ? <FileText className="w-4 h-4" /> : <ImageIcon className="w-4 h-4" />}
-                    <span>{result.metadata_info?.image_type === 'document' ? 'Document Image' : 'Normal Image / Photo'}</span>
-                  </div>
-                </div>
-                <RiskBadge level={result.threat_level} size="lg" />
-              </div>
-
-              {/* Gauges */}
-              <div className="grid grid-cols-2 gap-4 items-center justify-items-center bg-slate-900/60 p-4 rounded-xl border border-slate-800">
-                <ScoreMeter score={result.risk_score} label="Risk Score" size={130} />
-                <ScoreMeter score={result.trust_score} label="Trust Score" size={130} />
+            <AnalysisResultCard result={result}>
+              {/* Classification Badge */}
+              <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800 flex items-center justify-between text-xs">
+                <span className="text-slate-400 font-mono">AUTOMATIC FILE CLASSIFICATION:</span>
+                <span className="font-bold font-outfit text-cyan-400 uppercase flex items-center gap-1.5">
+                  {result.metadata_info?.image_type === 'document' ? <FileText className="w-4 h-4" /> : <ImageIcon className="w-4 h-4" />}
+                  <span>{result.metadata_info?.image_type === 'document' ? 'Document Image' : 'Standard Photo'}</span>
+                </span>
               </div>
 
               {/* View Tabs */}
@@ -131,7 +167,7 @@ export const ImageScanner = () => {
                     activeTab === 'canvas' ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  Tampered Region Overlay
+                  Tampered Bounding Box Overlay
                 </button>
                 {result.metadata_info?.ela_image_path && (
                   <button
@@ -140,12 +176,12 @@ export const ImageScanner = () => {
                       activeTab === 'ela' ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    Error Level Analysis (ELA)
+                    Error Level Analysis (ELA Heatmap)
                   </button>
                 )}
               </div>
 
-              {/* Tab Content */}
+              {/* Tab 1: Region Canvas */}
               {activeTab === 'canvas' && (
                 <SuspiciousCanvas
                   imageUrl={previewUrl}
@@ -153,45 +189,24 @@ export const ImageScanner = () => {
                 />
               )}
 
+              {/* Tab 2: ELA Preview */}
               {activeTab === 'ela' && result.metadata_info?.ela_image_path && (
                 <div className="space-y-2">
                   <div className="relative rounded-xl overflow-hidden border border-slate-800 bg-slate-950 p-2 flex justify-center">
-                    <img src={result.metadata_info.ela_image_path} alt="ELA Map" className="max-h-64 object-contain rounded-lg" />
+                    <img src={result.metadata_info.ela_image_path} alt="ELA Heatmap" className="max-h-64 object-contain rounded-lg" />
                   </div>
                   <p className="text-[11px] text-slate-400 text-center font-mono">
-                    ELA Error Variance: {result.metadata_info.ela_score} | High contrast bright pixels indicate re-compression anomalies.
+                    ELA Variance: {result.metadata_info.ela_score} | Bright pixels indicate local re-compression deltas.
                   </p>
                 </div>
               )}
-
-              {/* Signal Indicators */}
-              <div>
-                <h4 className="text-xs font-bold font-outfit uppercase tracking-wider text-slate-300 mb-3">Forensic Signals Evaluated</h4>
-                <div className="space-y-2">
-                  {result.signals.map((sig, idx) => (
-                    <div key={idx} className={`p-3 rounded-xl border text-xs flex items-start gap-3 ${
-                      sig.detected ? 'bg-red-950/20 border-red-500/30 text-slate-200' : 'bg-slate-900/40 border-slate-800 text-slate-400'
-                    }`}>
-                      {sig.detected ? <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" /> : <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />}
-                      <div>
-                        <div className="font-semibold text-white">{sig.name}</div>
-                        <div className="mt-0.5 leading-relaxed">{sig.description}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Recommended Action */}
-              <div className="p-4 rounded-xl bg-cyan-950/20 border border-cyan-500/30 text-xs text-slate-200 space-y-1">
-                <div className="font-bold text-cyan-400 uppercase tracking-wider font-mono">RECOMMENDED ACTION</div>
-                <p className="leading-relaxed">{result.recommended_action}</p>
-              </div>
-            </div>
-          ) : (
+            </AnalysisResultCard>
+          ) : !loading && (
             <div className="glass-panel p-12 rounded-2xl border-slate-800 text-center flex flex-col items-center justify-center h-full min-h-[400px]">
               <ImageIcon className="w-12 h-12 text-slate-600 mb-3" />
-              <p className="text-slate-400 text-sm">Upload an image or document on the left to begin forensic analysis.</p>
+              <p className="text-slate-400 text-sm max-w-sm">
+                Upload any single image or PDF on the left. Sentinel AI will automatically determine file type and highlight tampered regions.
+              </p>
             </div>
           )}
         </div>
