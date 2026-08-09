@@ -56,19 +56,15 @@ class ImageAnalyzer:
 
             # 3. Calculate statistical metrics
             np_diff = np.array(diff_img, dtype=np.float32)
-            # Channel-wise mean difference per pixel
             pixel_diffs = np.mean(np_diff, axis=2)
             
             mean_diff = float(np.mean(pixel_diffs))
             max_diff = int(np.max(pixel_diffs))
             diff_var = float(np.var(pixel_diffs))
-            diff_std = float(np.std(pixel_diffs))
 
             # 4. Deterministic Normalization to 0-100 ELA Anomaly Score
-            # Empirical calibration: mean_diff typically ranges 0-25 for normal/high-res,
-            # variance ranges 0-150. Spliced/recompressed areas create localized high-diff spikes.
-            norm_mean_component = min(50.0, (mean_diff / 12.0) * 50.0)
-            norm_var_component = min(50.0, (diff_var / 80.0) * 50.0)
+            norm_mean_component = min(50.0, (mean_diff / 10.0) * 50.0)
+            norm_var_component = min(50.0, (diff_var / 70.0) * 50.0)
             raw_ela_score = norm_mean_component + norm_var_component
             
             ela_score = int(np.clip(round(raw_ela_score), 0, 100))
@@ -97,22 +93,18 @@ class ImageAnalyzer:
             # 6. Generate Thresholded Anomaly Mask & Extract Bounding Boxes
             suspicious_regions = []
             try:
-                # Convert pixel differences to 8-bit mask
                 mask_gray = np.clip(pixel_diffs * (255.0 / max(1.0, max_diff)), 0, 255).astype(np.uint8)
                 _, thresh = cv2.threshold(mask_gray, 140, 255, cv2.THRESH_BINARY)
                 
-                # Morphological cleanup
                 kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
                 cleaned_mask = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
                 cv2.imwrite(mask_out_path, cleaned_mask)
 
-                # Find contours of anomalous local regions
                 contours, _ = cv2.findContours(cleaned_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                 img_h, img_w = pixel_diffs.shape[:2]
 
                 for idx, cnt in enumerate(contours):
                     x, y, w, h = cv2.boundingRect(cnt)
-                    # Filter out tiny noise contours or massive background boxes
                     if 20 < w < (img_w * 0.85) and 15 < h < (img_h * 0.85) and (w * h) > 300:
                         roi = pixel_diffs[y:y+h, x:x+w]
                         region_score = int(np.clip(round((np.mean(roi) / max(1.0, mean_diff)) * 50 + 40), 50, 98))
@@ -129,7 +121,6 @@ class ImageAnalyzer:
             except Exception:
                 pass
 
-            # Cleanup temp file
             if os.path.exists(temp_path):
                 try:
                     os.remove(temp_path)
@@ -205,7 +196,6 @@ class ImageAnalyzer:
 
             # 4. Analyze Noise & Manipulation / Splicing Signals
             noise_var = ImageAnalyzer._analyze_noise_variance(cv_img) if cv_img is not None else 10.0
-            # Calculate noise score based on deviation from expected normal variance range (10-350)
             if noise_var < 5.0 or noise_var > 450.0:
                 noise_score = int(min(95, 50 + abs(noise_var - 200.0) / 10.0))
             else:
@@ -226,40 +216,47 @@ class ImageAnalyzer:
 
             manipulation_score = max(noise_score, splicing_score)
 
-            # 5. DYNAMIC WEIGHTED RISK SCORE FORMULA
-            # ELA Weight: 0.40 (40%), Metadata Weight: 0.15 (15%), Manipulation/Noise Weight: 0.45 (45%)
+            # 5. ELA-DIRECTED RISK SCORE FORMULA
+            # ELA carries a primary 50% weight, Metadata 20%, Manipulation 30%.
+            # Furthermore, if ELA Anomaly Score is high, it directly bounds the minimum Risk Score!
+            ela_weight = 0.50
+            meta_weight = 0.20
+            manip_weight = 0.30
+
+            weighted_risk = (ela_score * ela_weight) + (metadata_score * meta_weight) + (manipulation_score * manip_weight)
+            
+            # Direct ELA floor: High ELA score (e.g. 82) directly forces the risk score to reflect ELA (e.g. 82 * 0.95 = 78)
+            direct_ela_risk = (ela_score * 0.95) if ela_score > 35 else weighted_risk
+            raw_risk = max(weighted_risk, direct_ela_risk)
+
+            risk_score = int(np.clip(round(raw_risk), 0, 100))
+            trust_score = 100 - risk_score
+
             signal_components = [
                 {
                     "name": "ELA Compression Anomaly",
                     "score": ela_score,
-                    "weight": 0.40,
+                    "weight": ela_weight,
                     "detected": ela_score > 35,
                     "description": f"ELA anomaly score: {ela_score}/100 ({ela_info['ela_anomaly_level']}). {ela_info['format_note']}"
                 },
                 {
                     "name": "Editing Software Metadata Tag",
                     "score": metadata_score,
-                    "weight": 0.15,
+                    "weight": meta_weight,
                     "detected": metadata_score > 0,
                     "description": meta_signals[0]["description"]
                 },
                 {
                     "name": "Manipulation & Noise Indicators",
                     "score": manipulation_score,
-                    "weight": 0.45,
+                    "weight": manip_weight,
                     "detected": manipulation_score > 35,
                     "description": f"Local noise variance: {noise_var:.1f}. " + (
                         "Copy-paste feature cloning detected." if splicing_detected else "No keypoint cloning detected."
                     )
                 }
             ]
-
-            # Dynamic Weight Normalization
-            total_weight = sum(s["weight"] for s in signal_components)
-            raw_risk = sum(s["score"] * s["weight"] for s in signal_components) / total_weight if total_weight > 0 else 0.0
-            
-            risk_score = int(np.clip(round(raw_risk), 0, 100))
-            trust_score = 100 - risk_score
 
             # Determine Threat Level
             if risk_score <= 20:
@@ -281,7 +278,7 @@ class ImageAnalyzer:
             # Scientific Disclaimer & Reasons
             reasons = []
             if ela_score > 35:
-                reasons.append(f"ELA Anomaly Score: {ela_score}/100 ({ela_info['ela_anomaly_level']} anomaly level).")
+                reasons.append(f"ELA Anomaly Score: {ela_score}/100 ({ela_info['ela_anomaly_level']} anomaly level) directly contributed to the Risk Score.")
                 reasons.append("Localized compression variance detected between original and recompressed image layers.")
             else:
                 reasons.append(f"ELA Anomaly Score: {ela_score}/100. Compression history is relatively uniform.")
@@ -338,7 +335,6 @@ class ImageAnalyzer:
             }
 
         except Exception as e:
-            # Fallback safe response if file parsing fails
             fallback_ela = {
                 "ela_score": 0,
                 "ela_mean": 0.0,
