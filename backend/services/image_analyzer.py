@@ -15,7 +15,10 @@ class ImageAnalyzer:
         Calculation Method:
         1. Resaves the working RGB copy at a controlled JPEG quality (quality=95).
         2. Computes pixel-level absolute difference array between original and recompressed image.
-        3. Measures statistical metrics: mean_difference, max_difference, variance, and std_dev.
+        3. Measures statistical metrics across the top 10% localized anomaly pixels:
+           - mean_difference (95th percentile distribution)
+           - max_difference
+           - variance
         4. Normalizes statistical mean & variance into a 0-100 ELA Anomaly Score:
            - 0-20: VERY LOW ELA anomaly (Uniform compression history)
            - 21-40: LOW ELA anomaly
@@ -54,17 +57,22 @@ class ImageAnalyzer:
             with Image.open(temp_path) as resaved_img:
                 diff_img = ImageChops.difference(rgb_img, resaved_img)
 
-            # 3. Calculate statistical metrics
+            # 3. Calculate statistical metrics on top 10% localized anomaly region
             np_diff = np.array(diff_img, dtype=np.float32)
             pixel_diffs = np.mean(np_diff, axis=2)
             
-            mean_diff = float(np.mean(pixel_diffs))
-            max_diff = int(np.max(pixel_diffs))
-            diff_var = float(np.var(pixel_diffs))
+            flat_diffs = pixel_diffs.ravel()
+            sorted_diffs = np.sort(flat_diffs)
+            top10_count = max(10, int(flat_diffs.size * 0.10))
+            top10_diffs = sorted_diffs[-top10_count:]
+
+            mean_diff = float(np.mean(top10_diffs))
+            max_diff = int(np.max(flat_diffs))
+            diff_var = float(np.var(top10_diffs))
 
             # 4. Deterministic Normalization to 0-100 ELA Anomaly Score
-            norm_mean_component = min(50.0, (mean_diff / 10.0) * 50.0)
-            norm_var_component = min(50.0, (diff_var / 70.0) * 50.0)
+            norm_mean_component = min(50.0, (mean_diff / 4.5) * 50.0)
+            norm_var_component = min(50.0, (diff_var / 15.0) * 50.0)
             raw_ela_score = norm_mean_component + norm_var_component
             
             ela_score = int(np.clip(round(raw_ela_score), 0, 100))
@@ -192,7 +200,7 @@ class ImageAnalyzer:
 
             # 3. Analyze EXIF Metadata
             meta_signals = ImageAnalyzer._analyze_metadata(pil_img)
-            metadata_score = 75 if meta_signals[0]["detected"] else 0
+            metadata_score = 85 if meta_signals[0]["detected"] else 0
 
             # 4. Analyze Noise & Manipulation / Splicing Signals
             noise_var = ImageAnalyzer._analyze_noise_variance(cv_img) if cv_img is not None else 10.0
@@ -206,27 +214,25 @@ class ImageAnalyzer:
             if image_type == "document" and cv_img is not None:
                 doc_signals, doc_boxes = ImageAnalyzer._analyze_document_structure(cv_img)
                 if doc_signals[0]["detected"]:
-                    splicing_score = 70
+                    splicing_score = 80
                 suspicious_regions.extend(doc_boxes)
             elif cv_img is not None:
                 splicing_detected, copy_boxes = ImageAnalyzer._detect_copy_move(cv_img)
                 if splicing_detected:
-                    splicing_score = 85
+                    splicing_score = 90
                 suspicious_regions.extend(copy_boxes)
 
             manipulation_score = max(noise_score, splicing_score)
 
             # 5. ELA-DIRECTED RISK SCORE FORMULA
-            # ELA carries a primary 50% weight, Metadata 20%, Manipulation 30%.
-            # Furthermore, if ELA Anomaly Score is high, it directly bounds the minimum Risk Score!
             ela_weight = 0.50
             meta_weight = 0.20
             manip_weight = 0.30
 
             weighted_risk = (ela_score * ela_weight) + (metadata_score * meta_weight) + (manipulation_score * manip_weight)
             
-            # Direct ELA floor: High ELA score (e.g. 82) directly forces the risk score to reflect ELA (e.g. 82 * 0.95 = 78)
-            direct_ela_risk = (ela_score * 0.95) if ela_score > 35 else weighted_risk
+            # Direct ELA floor: High ELA score directly bounds the minimum Risk Score
+            direct_ela_risk = ela_score if ela_score > 35 else weighted_risk
             raw_risk = max(weighted_risk, direct_ela_risk)
 
             risk_score = int(np.clip(round(raw_risk), 0, 100))
