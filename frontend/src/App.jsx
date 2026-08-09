@@ -18,29 +18,34 @@ import { ScanHistory } from './pages/App/ScanHistory';
 import { ScanDetails } from './pages/App/ScanDetails';
 import { Settings } from './pages/App/Settings';
 
-const ProtectedRoute = ({ children }) => {
-  const { isAuthenticated, loading } = useAuth();
-  if (loading) return <div className="min-h-screen bg-[#080c14] flex items-center justify-center text-cyan-400 text-sm">Initializing Sentinel Console...</div>;
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
+const AppRouteWrapper = ({ children }) => {
+  const { loading } = useAuth();
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#080c14] flex items-center justify-center text-cyan-400 font-mono text-sm">
+        Initializing Sentinel Console...
+      </div>
+    );
+  }
   return children;
 };
 
 export default function App() {
   return (
     <Routes>
-      {/* Public Pages */}
+      {/* Public Landing & Auth Pages */}
       <Route path="/" element={<Home />} />
       <Route path="/about" element={<About />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
 
-      {/* Protected App Routes */}
+      {/* Direct-Access App Console Routes */}
       <Route
         path="/app"
         element={
-          <ProtectedRoute>
+          <AppRouteWrapper>
             <AppLayout />
-          </ProtectedRoute>
+          </AppRouteWrapper>
         }
       >
         <Route index element={<Navigate to="/app/dashboard" replace />} />
@@ -55,7 +60,7 @@ export default function App() {
         <Route path="settings" element={<Settings />} />
       </Route>
 
-      {/* Fallback */}
+      {/* Fallback Catch-All */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

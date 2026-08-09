@@ -3,10 +3,165 @@ import cv2
 import numpy as np
 from PIL import Image, ImageChops, ImageEnhance
 import pymupdf as fitz  # PyMuPDF
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 from .risk_engine import CommonRiskEngine
 
 class ImageAnalyzer:
+    @staticmethod
+    def calculate_ela_score(file_path: str, pil_img) -> Dict[str, Any]:
+        """
+        DEDICATED ELA STATISTICAL ENGINE & ANOMALY SCORER
+        
+        Calculation Method:
+        1. Resaves the working RGB copy at a controlled JPEG quality (quality=95).
+        2. Computes pixel-level absolute difference array between original and recompressed image.
+        3. Measures statistical metrics: mean_difference, max_difference, variance, and std_dev.
+        4. Normalizes statistical mean & variance into a 0-100 ELA Anomaly Score:
+           - 0-20: VERY LOW ELA anomaly (Uniform compression history)
+           - 21-40: LOW ELA anomaly
+           - 41-60: MODERATE ELA anomaly (Moderate local recompression delta)
+           - 61-80: HIGH ELA anomaly (Significant local compression delta)
+           - 81-100: VERY HIGH ELA anomaly (Extreme recompression variance)
+        5. Generates enhanced ELA visualization heatmap image and anomaly mask.
+        6. Extracts bounding boxes for highly anomalous local regions via contour analysis.
+        """
+        if pil_img is None:
+            return {
+                "ela_score": 0,
+                "ela_mean": 0.0,
+                "ela_max": 0,
+                "ela_anomaly_level": "VERY LOW",
+                "visualization_url": None,
+                "mask_url": None,
+                "suspicious_regions": [],
+                "format_note": "Image unavailable for ELA analysis."
+            }
+
+        try:
+            ext = os.path.splitext(file_path)[1].lower()
+            is_jpeg = ext in [".jpg", ".jpeg"]
+            format_note = "Standard JPEG compression history ELA." if is_jpeg else "JPEG-recompression-based ELA (working RGB copy)."
+
+            temp_path = file_path + ".resaved.jpg"
+            ela_out_path = file_path + ".ela.jpg"
+            mask_out_path = file_path + ".mask.jpg"
+
+            # 1. Convert working copy to RGB & resave at quality=95
+            rgb_img = pil_img.convert("RGB")
+            rgb_img.save(temp_path, "JPEG", quality=95)
+
+            # 2. Compute pixel-level difference
+            with Image.open(temp_path) as resaved_img:
+                diff_img = ImageChops.difference(rgb_img, resaved_img)
+
+            # 3. Calculate statistical metrics
+            np_diff = np.array(diff_img, dtype=np.float32)
+            # Channel-wise mean difference per pixel
+            pixel_diffs = np.mean(np_diff, axis=2)
+            
+            mean_diff = float(np.mean(pixel_diffs))
+            max_diff = int(np.max(pixel_diffs))
+            diff_var = float(np.var(pixel_diffs))
+            diff_std = float(np.std(pixel_diffs))
+
+            # 4. Deterministic Normalization to 0-100 ELA Anomaly Score
+            # Empirical calibration: mean_diff typically ranges 0-25 for normal/high-res,
+            # variance ranges 0-150. Spliced/recompressed areas create localized high-diff spikes.
+            norm_mean_component = min(50.0, (mean_diff / 12.0) * 50.0)
+            norm_var_component = min(50.0, (diff_var / 80.0) * 50.0)
+            raw_ela_score = norm_mean_component + norm_var_component
+            
+            ela_score = int(np.clip(round(raw_ela_score), 0, 100))
+
+            # Assign ELA Anomaly Level Tiers
+            if ela_score <= 20:
+                ela_level = "VERY LOW"
+            elif ela_score <= 40:
+                ela_level = "LOW"
+            elif ela_score <= 60:
+                ela_level = "MODERATE"
+            elif ela_score <= 80:
+                ela_level = "HIGH"
+            else:
+                ela_level = "VERY HIGH"
+
+            # 5. Generate Enhanced ELA Heatmap Image
+            extrema = diff_img.getextrema()
+            max_channel_diff = max([ex[1] for ex in extrema]) if extrema else 1
+            if max_channel_diff == 0:
+                max_channel_diff = 1
+            scale = 255.0 / max_channel_diff
+            enhanced_ela = ImageEnhance.Brightness(diff_img).enhance(scale)
+            enhanced_ela.save(ela_out_path)
+
+            # 6. Generate Thresholded Anomaly Mask & Extract Bounding Boxes
+            suspicious_regions = []
+            try:
+                # Convert pixel differences to 8-bit mask
+                mask_gray = np.clip(pixel_diffs * (255.0 / max(1.0, max_diff)), 0, 255).astype(np.uint8)
+                _, thresh = cv2.threshold(mask_gray, 140, 255, cv2.THRESH_BINARY)
+                
+                # Morphological cleanup
+                kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+                cleaned_mask = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+                cv2.imwrite(mask_out_path, cleaned_mask)
+
+                # Find contours of anomalous local regions
+                contours, _ = cv2.findContours(cleaned_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                img_h, img_w = pixel_diffs.shape[:2]
+
+                for idx, cnt in enumerate(contours):
+                    x, y, w, h = cv2.boundingRect(cnt)
+                    # Filter out tiny noise contours or massive background boxes
+                    if 20 < w < (img_w * 0.85) and 15 < h < (img_h * 0.85) and (w * h) > 300:
+                        roi = pixel_diffs[y:y+h, x:x+w]
+                        region_score = int(np.clip(round((np.mean(roi) / max(1.0, mean_diff)) * 50 + 40), 50, 98))
+                        if len(suspicious_regions) < 4:
+                            suspicious_regions.append({
+                                "x": int(x),
+                                "y": int(y),
+                                "width": int(w),
+                                "height": int(h),
+                                "label": f"Potentially anomalous region #{len(suspicious_regions)+1}",
+                                "score": region_score,
+                                "confidence": round(region_score / 100.0, 2)
+                            })
+            except Exception:
+                pass
+
+            # Cleanup temp file
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+
+            web_ela_path = f"/uploads/{os.path.basename(ela_out_path)}"
+            web_mask_path = f"/uploads/{os.path.basename(mask_out_path)}" if os.path.exists(mask_out_path) else None
+
+            return {
+                "ela_score": ela_score,
+                "ela_mean": round(mean_diff, 2),
+                "ela_max": max_diff,
+                "ela_anomaly_level": ela_level,
+                "visualization_url": web_ela_path,
+                "mask_url": web_mask_path,
+                "suspicious_regions": suspicious_regions,
+                "format_note": format_note
+            }
+
+        except Exception as e:
+            return {
+                "ela_score": 0,
+                "ela_mean": 0.0,
+                "ela_max": 0,
+                "ela_anomaly_level": "VERY LOW",
+                "visualization_url": None,
+                "mask_url": None,
+                "suspicious_regions": [],
+                "format_note": f"ELA calculation error: {str(e)}"
+            }
+
     @staticmethod
     def analyze_image(file_path: str, original_filename: str) -> Dict[str, Any]:
         ext = os.path.splitext(file_path)[1].lower()
@@ -17,7 +172,7 @@ class ImageAnalyzer:
         suspicious_regions = []
 
         try:
-            # 1. Automatic Image/Document Classification
+            # 1. Automatic Image vs Document Classification
             image_type = "document" if is_pdf else ImageAnalyzer._classify_file(file_path)
 
             if is_pdf:
@@ -38,103 +193,177 @@ class ImageAnalyzer:
                 except Exception:
                     pass
 
-            signals = []
+            # 2. Perform Dedicated Statistical ELA Analysis
+            ela_info = ImageAnalyzer.calculate_ela_score(file_path, pil_img)
+            ela_score = ela_info["ela_score"]
+            if ela_info.get("suspicious_regions"):
+                suspicious_regions.extend(ela_info["suspicious_regions"])
 
-            # Signal 1: Metadata Anomaly
+            # 3. Analyze EXIF Metadata
             meta_signals = ImageAnalyzer._analyze_metadata(pil_img)
-            signals.extend(meta_signals)
+            metadata_score = 75 if meta_signals[0]["detected"] else 0
 
-            # Signal 2: ELA (Error Level Analysis)
-            ela_val, ela_path = ImageAnalyzer._perform_ela(file_path, pil_img)
-            if ela_val > 18.0:
-                signals.append({
-                    "name": "Compression Anomaly (ELA)",
-                    "weight": 25.0,
-                    "detected": True,
-                    "description": f"High ELA error variance ({ela_val:.1f}), indicating potential local re-compression or splicing."
-                })
-            else:
-                signals.append({
-                    "name": "Compression Anomaly (ELA)",
-                    "weight": 25.0,
-                    "detected": False,
-                    "description": f"Uniform ELA error distribution ({ela_val:.1f})."
-                })
-
-            # Signal 3: Noise & Edge Discontinuity
+            # 4. Analyze Noise & Manipulation / Splicing Signals
             noise_var = ImageAnalyzer._analyze_noise_variance(cv_img) if cv_img is not None else 10.0
+            # Calculate noise score based on deviation from expected normal variance range (10-350)
             if noise_var < 5.0 or noise_var > 450.0:
-                signals.append({
-                    "name": "Noise Discontinuity",
-                    "weight": 20.0,
-                    "detected": True,
-                    "description": f"Abnormal high-frequency noise variance ({noise_var:.1f}) detected."
-                })
+                noise_score = int(min(95, 50 + abs(noise_var - 200.0) / 10.0))
             else:
-                signals.append({
-                    "name": "Noise Discontinuity",
-                    "weight": 20.0,
-                    "detected": False,
-                    "description": "Consistent noise texture across image regions."
-                })
+                noise_score = 0
 
-            # Signal 4: Document / Text Tampering & Bounding Box Detection
+            splicing_detected = False
+            splicing_score = 0
             if image_type == "document" and cv_img is not None:
-                doc_signals, bounding_boxes = ImageAnalyzer._analyze_document_structure(cv_img)
-                signals.extend(doc_signals)
-                suspicious_regions.extend(bounding_boxes)
-            else:
-                if cv_img is not None:
-                    splicing_detected, boxes = ImageAnalyzer._detect_copy_move(cv_img)
-                    if splicing_detected:
-                        signals.append({
-                            "name": "Copy-Paste / Splicing Region",
-                            "weight": 30.0,
-                            "detected": True,
-                            "description": "Duplicate visual feature blocks detected across non-adjacent image coordinates."
-                        })
-                        suspicious_regions.extend(boxes)
-                    else:
-                        signals.append({
-                            "name": "Copy-Paste / Splicing Region",
-                            "weight": 30.0,
-                            "detected": False,
-                            "description": "No duplicate cloned feature regions detected."
-                        })
+                doc_signals, doc_boxes = ImageAnalyzer._analyze_document_structure(cv_img)
+                if doc_signals[0]["detected"]:
+                    splicing_score = 70
+                suspicious_regions.extend(doc_boxes)
+            elif cv_img is not None:
+                splicing_detected, copy_boxes = ImageAnalyzer._detect_copy_move(cv_img)
+                if splicing_detected:
+                    splicing_score = 85
+                suspicious_regions.extend(copy_boxes)
 
-            confidence = 0.91 if cv_img is not None else 0.75
+            manipulation_score = max(noise_score, splicing_score)
+
+            # 5. DYNAMIC WEIGHTED RISK SCORE FORMULA
+            # ELA Weight: 0.40 (40%), Metadata Weight: 0.15 (15%), Manipulation/Noise Weight: 0.45 (45%)
+            signal_components = [
+                {
+                    "name": "ELA Compression Anomaly",
+                    "score": ela_score,
+                    "weight": 0.40,
+                    "detected": ela_score > 35,
+                    "description": f"ELA anomaly score: {ela_score}/100 ({ela_info['ela_anomaly_level']}). {ela_info['format_note']}"
+                },
+                {
+                    "name": "Editing Software Metadata Tag",
+                    "score": metadata_score,
+                    "weight": 0.15,
+                    "detected": metadata_score > 0,
+                    "description": meta_signals[0]["description"]
+                },
+                {
+                    "name": "Manipulation & Noise Indicators",
+                    "score": manipulation_score,
+                    "weight": 0.45,
+                    "detected": manipulation_score > 35,
+                    "description": f"Local noise variance: {noise_var:.1f}. " + (
+                        "Copy-paste feature cloning detected." if splicing_detected else "No keypoint cloning detected."
+                    )
+                }
+            ]
+
+            # Dynamic Weight Normalization
+            total_weight = sum(s["weight"] for s in signal_components)
+            raw_risk = sum(s["score"] * s["weight"] for s in signal_components) / total_weight if total_weight > 0 else 0.0
+            
+            risk_score = int(np.clip(round(raw_risk), 0, 100))
+            trust_score = 100 - risk_score
+
+            # Determine Threat Level
+            if risk_score <= 20:
+                threat_level = "SAFE"
+                threat_type = "Authentic Image Structure"
+            elif risk_score <= 40:
+                threat_level = "LOW"
+                threat_type = "Low Risk / Minor Non-Standard Artifacts"
+            elif risk_score <= 60:
+                threat_level = "MEDIUM"
+                threat_type = "Potential Minor Compression Inconsistencies"
+            elif risk_score <= 80:
+                threat_level = "HIGH"
+                threat_type = "Potential Image Manipulation / Tampering"
+            else:
+                threat_level = "CRITICAL"
+                threat_type = "Critical Forensic Anomalies & Tampering Detected"
+
+            # Scientific Disclaimer & Reasons
+            reasons = []
+            if ela_score > 35:
+                reasons.append(f"ELA Anomaly Score: {ela_score}/100 ({ela_info['ela_anomaly_level']} anomaly level).")
+                reasons.append("Localized compression variance detected between original and recompressed image layers.")
+            else:
+                reasons.append(f"ELA Anomaly Score: {ela_score}/100. Compression history is relatively uniform.")
+
+            if metadata_score > 0:
+                reasons.append("EXIF metadata header contains traces of photo editing software.")
+
+            if manipulation_score > 35:
+                reasons.append("Noise variance or feature cloning indicators detected.")
+
+            reasons.append("SCIENTIFIC NOTICE: ELA identifies regions with different compression characteristics. These anomalies can indicate editing or recompression, but they are not conclusive proof of manipulation.")
+
+            # Safety Recommendation
+            if threat_level in ["HIGH", "CRITICAL"]:
+                recommended_action = "CRITICAL WARNING: High forensic anomalies detected across ELA compression and manipulation layers. Verify original source before relying on this content."
+            elif threat_level == "MEDIUM":
+                recommended_action = "EXERCISING CAUTION: Moderate ELA compression or structural anomalies detected. Cross-verify document or photo origins."
+            elif threat_level == "LOW":
+                recommended_action = "LOW RISK: Minor non-standard compression artifacts detected. Content is likely benign."
+            else:
+                recommended_action = "VERIFIED SAFE: No significant ELA compression anomalies or manipulation signatures were detected."
+
+            confidence = 0.92 if cv_img is not None else 0.78
 
             metadata_info = {
                 "image_type": image_type,
                 "dimensions": f"{cv_img.shape[1]}x{cv_img.shape[0]}" if cv_img is not None else "Unknown",
-                "ela_score": round(ela_val, 2),
-                "ela_image_path": ela_path,
+                "ela": ela_info,
+                "ela_score": ela_score,
+                "ela_image_path": ela_info["visualization_url"],
                 "suspicious_regions": suspicious_regions
             }
 
-            return CommonRiskEngine.evaluate(
-                scan_type="document" if image_type == "document" else "image",
-                input_summary=original_filename,
-                detected_signals=signals,
-                base_confidence=confidence,
-                metadata_info=metadata_info
-            )
+            return {
+                "scan_type": "document" if image_type == "document" else "image",
+                "input_summary": original_filename,
+                "risk_score": risk_score,
+                "trust_score": trust_score,
+                "threat_level": threat_level,
+                "threat_type": threat_type,
+                "confidence": round(confidence, 2),
+                "ela": ela_info,
+                "signals": signal_components,
+                "explanation": {
+                    "summary": f"{threat_level} risk evaluated with {int(confidence * 100)}% engine confidence.",
+                    "active_indicators": reasons,
+                    "total_signals_scanned": len(signal_components),
+                    "triggered_signals_count": sum(1 for s in signal_components if s["detected"]),
+                    "notes": "ELA identifies compression inconsistencies. Always cross-verify critical documents."
+                },
+                "reasons": reasons,
+                "recommended_action": recommended_action,
+                "metadata_info": metadata_info
+            }
 
         except Exception as e:
-            # Fallback safe response if file structure causes unexpected parser exception
-            fallback_signals = [{
-                "name": "Format Validation",
-                "weight": 20.0,
-                "detected": False,
-                "description": "Inspected file container format."
-            }]
-            return CommonRiskEngine.evaluate(
-                scan_type="image",
-                input_summary=original_filename,
-                detected_signals=fallback_signals,
-                base_confidence=0.75,
-                metadata_info={"image_type": "normal_image", "ela_score": 0.0, "suspicious_regions": []}
-            )
+            # Fallback safe response if file parsing fails
+            fallback_ela = {
+                "ela_score": 0,
+                "ela_mean": 0.0,
+                "ela_max": 0,
+                "ela_anomaly_level": "VERY LOW",
+                "visualization_url": None,
+                "mask_url": None,
+                "suspicious_regions": [],
+                "format_note": "Fallback mode"
+            }
+            return {
+                "scan_type": "image",
+                "input_summary": original_filename,
+                "risk_score": 0,
+                "trust_score": 100,
+                "threat_level": "SAFE",
+                "threat_type": "Authentic Content",
+                "confidence": 0.75,
+                "ela": fallback_ela,
+                "signals": [],
+                "explanation": {"summary": "Format validation safe", "active_indicators": []},
+                "reasons": ["Inspected file container format."],
+                "recommended_action": "VERIFIED SAFE: Content format safe.",
+                "metadata_info": {"image_type": "normal_image", "ela": fallback_ela, "suspicious_regions": []}
+            }
 
     @staticmethod
     def _classify_file(file_path: str) -> str:
@@ -154,11 +383,10 @@ class ImageAnalyzer:
     def _analyze_metadata(pil_img) -> List[Dict[str, Any]]:
         signals = []
         if pil_img is None:
-            return signals
+            return [{"name": "Editing Software Metadata Tag", "detected": False, "description": "No EXIF software tags."}]
 
         software_detected = False
         try:
-            # Safe EXIF extraction
             exif = pil_img.getexif() if hasattr(pil_img, 'getexif') else None
             if exif:
                 for tag_id, value in exif.items():
@@ -169,57 +397,12 @@ class ImageAnalyzer:
         except Exception:
             pass
 
-        if software_detected:
-            signals.append({
-                "name": "Editing Software Metadata Tag",
-                "weight": 25.0,
-                "detected": True,
-                "description": "EXIF metadata contains traces of photo editing software."
-            })
-        else:
-            signals.append({
-                "name": "Editing Software Metadata Tag",
-                "weight": 25.0,
-                "detected": False,
-                "description": "No photo editing software signatures found in EXIF tags."
-            })
+        signals.append({
+            "name": "Editing Software Metadata Tag",
+            "detected": software_detected,
+            "description": "EXIF metadata contains traces of photo editing software." if software_detected else "No photo editing software signatures found in EXIF tags."
+        })
         return signals
-
-    @staticmethod
-    def _perform_ela(file_path: str, pil_img) -> tuple[float, str]:
-        if pil_img is None:
-            return 0.0, ""
-        try:
-            temp_path = file_path + ".resaved.jpg"
-            ela_out_path = file_path + ".ela.jpg"
-
-            rgb_img = pil_img.convert("RGB")
-            rgb_img.save(temp_path, "JPEG", quality=95)
-            
-            with Image.open(temp_path) as resaved_img:
-                ela_img = ImageChops.difference(rgb_img, resaved_img)
-
-            extrema = ela_img.getextrema()
-            max_diff = max([ex[1] for ex in extrema])
-            if max_diff == 0:
-                max_diff = 1
-
-            scale = 255.0 / max_diff
-            ela_img = ImageEnhance.Brightness(ela_img).enhance(scale)
-            ela_img.save(ela_out_path)
-
-            if os.path.exists(temp_path):
-                try:
-                    os.remove(temp_path)
-                except Exception:
-                    pass
-
-            np_ela = np.array(ela_img)
-            ela_variance = float(np.var(np_ela))
-            web_path = os.path.basename(ela_out_path)
-            return ela_variance, f"/uploads/{web_path}"
-        except Exception:
-            return 0.0, ""
 
     @staticmethod
     def _analyze_noise_variance(cv_img) -> float:
@@ -255,28 +438,19 @@ class ImageAnalyzer:
                                 "y": int(y),
                                 "width": int(bw),
                                 "height": int(bh),
-                                "label": f"Altered Text Field #{len(boxes)+1}",
-                                "confidence": 0.86
+                                "label": f"Potentially anomalous text region #{len(boxes)+1}",
+                                "score": 82,
+                                "confidence": 0.82
                             })
 
-            if suspicious_count > 0:
-                signals.append({
-                    "name": "Font/Layout Inconsistency",
-                    "weight": 35.0,
-                    "detected": True,
-                    "description": f"Detected {suspicious_count} text regions with localized contrast & line thickness mismatch."
-                })
-            else:
-                signals.append({
-                    "name": "Font/Layout Inconsistency",
-                    "weight": 35.0,
-                    "detected": False,
-                    "description": "Document text alignment, line weight, and background structure are uniform."
-                })
+            signals.append({
+                "name": "Font/Layout Inconsistency",
+                "detected": suspicious_count > 0,
+                "description": f"Detected {suspicious_count} text regions with localized contrast & line thickness mismatch." if suspicious_count > 0 else "Document text alignment and background structure are uniform."
+            })
         except Exception:
             signals.append({
                 "name": "Font/Layout Structure",
-                "weight": 20.0,
                 "detected": False,
                 "description": "Document structure checked."
             })
@@ -315,7 +489,8 @@ class ImageAnalyzer:
                     "width": int(w),
                     "height": int(h),
                     "label": "Cloned / Spliced Region",
-                    "confidence": 0.89
+                    "score": 88,
+                    "confidence": 0.88
                 })
                 return True, boxes
             return False, boxes

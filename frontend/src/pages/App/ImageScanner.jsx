@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, Image as ImageIcon, FileText, AlertTriangle, CheckCircle2, Eye, Sparkles, RefreshCw } from 'lucide-react';
+import { Upload, Image as ImageIcon, FileText, AlertTriangle, Eye, Sparkles, RefreshCw, Layers } from 'lucide-react';
 import { scanImageApi } from '../../api/scans';
 import { AnalysisProgress } from '../../components/ui/AnalysisProgress';
 import { AnalysisResultCard } from '../../components/ui/AnalysisResultCard';
@@ -12,7 +12,7 @@ export const ImageScanner = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
-  const [activeTab, setActiveTab] = useState('canvas'); // 'canvas' or 'ela'
+  const [viewMode, setViewMode] = useState('side_by_side'); // 'side_by_side' or 'canvas'
 
   const handleFileChange = (e) => {
     const selected = e.target.files[0];
@@ -56,6 +56,8 @@ export const ImageScanner = () => {
     setError('');
   };
 
+  const elaData = result?.ela || result?.metadata_info?.ela || {};
+
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
       <div>
@@ -65,7 +67,7 @@ export const ImageScanner = () => {
         </div>
         <h1 className="text-2xl font-bold font-outfit text-white">Image & Document Manipulation Scanner</h1>
         <p className="text-xs text-slate-400">
-          Upload any single image or PDF. Sentinel AI automatically classifies file type, executing ELA, EXIF metadata parsing, and tampered region bounding box detection.
+          Upload any single image or PDF. Sentinel AI automatically classifies file type, executing statistical ELA, EXIF metadata parsing, and tampered region bounding box detection.
         </p>
       </div>
 
@@ -139,8 +141,8 @@ export const ImageScanner = () => {
                 "Validating image file container & header",
                 "Determining auto classification (Document vs Photo)",
                 "Executing Error Level Analysis (ELA)",
-                "Scanning noise variance & text bounding boxes",
-                "Computing normalized Risk & Trust scores"
+                "Calculating statistical ELA anomaly score",
+                "Computing dynamic weighted Risk & Trust scores"
               ]}
             />
           )}
@@ -150,62 +152,96 @@ export const ImageScanner = () => {
         <div className="lg:col-span-7">
           {result ? (
             <AnalysisResultCard result={result}>
-              {/* Classification Badge */}
-              <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800 flex items-center justify-between text-xs">
-                <span className="text-slate-400 font-mono">AUTOMATIC FILE CLASSIFICATION:</span>
-                <span className="font-bold font-outfit text-cyan-400 uppercase flex items-center gap-1.5">
-                  {result.metadata_info?.image_type === 'document' ? <FileText className="w-4 h-4" /> : <ImageIcon className="w-4 h-4" />}
-                  <span>{result.metadata_info?.image_type === 'document' ? 'Document Image' : 'Standard Photo'}</span>
-                </span>
+              {/* Classification Badge & ELA Anomaly Banner */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-mono">
+                <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800 flex items-center justify-between">
+                  <span className="text-slate-500">TYPE:</span>
+                  <span className="font-bold text-cyan-400 uppercase flex items-center gap-1.5 font-outfit">
+                    {result.metadata_info?.image_type === 'document' ? <FileText className="w-3.5 h-3.5" /> : <ImageIcon className="w-3.5 h-3.5" />}
+                    <span>{result.metadata_info?.image_type === 'document' ? 'Document Image' : 'Standard Photo'}</span>
+                  </span>
+                </div>
+                <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800 flex items-center justify-between">
+                  <span className="text-slate-500">ELA ANOMALY:</span>
+                  <span className="font-bold text-cyan-400 font-outfit">
+                    {elaData.ela_score || 0}/100 ({elaData.ela_anomaly_level || 'LOW'})
+                  </span>
+                </div>
               </div>
 
-              {/* View Tabs */}
+              {/* View Toggle Bar */}
               <div className="flex gap-2 border-b border-slate-800 pb-2">
                 <button
-                  onClick={() => setActiveTab('canvas')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                    activeTab === 'canvas' ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'text-slate-400 hover:text-slate-200'
+                  onClick={() => setViewMode('side_by_side')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                    viewMode === 'side_by_side' ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  Tampered Bounding Box Overlay
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>Side-by-Side ELA Comparison</span>
                 </button>
-                {result.metadata_info?.ela_image_path && (
-                  <button
-                    onClick={() => setActiveTab('ela')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                      activeTab === 'ela' ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    Error Level Analysis (ELA Heatmap)
-                  </button>
-                )}
+                <button
+                  onClick={() => setViewMode('canvas')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                    viewMode === 'canvas' ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>Tampered Bounding Box Canvas</span>
+                </button>
               </div>
 
-              {/* Tab 1: Region Canvas */}
-              {activeTab === 'canvas' && (
+              {/* View 1: Side-by-Side (Desktop) / Stacked (Mobile) */}
+              {viewMode === 'side_by_side' && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Original Image */}
+                    <div className="space-y-1.5">
+                      <div className="text-[11px] font-bold font-mono text-slate-400 uppercase">Original Image</div>
+                      <div className="relative rounded-xl overflow-hidden border border-slate-800 bg-slate-950 p-2 flex justify-center h-52">
+                        <img src={previewUrl} alt="Original" className="max-h-full object-contain rounded-lg" />
+                      </div>
+                    </div>
+
+                    {/* ELA Analysis Image */}
+                    <div className="space-y-1.5">
+                      <div className="text-[11px] font-bold font-mono text-cyan-400 uppercase flex items-center justify-between">
+                        <span>ELA Analysis Heatmap</span>
+                        <span className="text-[10px] text-slate-500 font-normal">{elaData.ela_anomaly_level}</span>
+                      </div>
+                      <div className="relative rounded-xl overflow-hidden border border-cyan-500/30 bg-slate-950 p-2 flex justify-center h-52">
+                        {elaData.visualization_url ? (
+                          <img src={elaData.visualization_url} alt="ELA Heatmap" className="max-h-full object-contain rounded-lg" />
+                        ) : (
+                          <div className="flex items-center justify-center text-xs text-slate-500 font-mono">No ELA preview</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ELA Statistical Metrics */}
+                  <div className="p-3 bg-slate-900/60 rounded-xl border border-slate-800 text-[11px] font-mono grid grid-cols-2 sm:grid-cols-4 gap-2 text-slate-400">
+                    <div><span className="text-slate-500 block">ELA Score:</span><strong className="text-cyan-400">{elaData.ela_score}/100</strong></div>
+                    <div><span className="text-slate-500 block">Mean Diff:</span><strong className="text-slate-200">{elaData.ela_mean}</strong></div>
+                    <div><span className="text-slate-500 block">Max Diff:</span><strong className="text-slate-200">{elaData.ela_max}</strong></div>
+                    <div><span className="text-slate-500 block">Level:</span><strong className="text-slate-200">{elaData.ela_anomaly_level}</strong></div>
+                  </div>
+                </div>
+              )}
+
+              {/* View 2: Region Canvas */}
+              {viewMode === 'canvas' && (
                 <SuspiciousCanvas
                   imageUrl={previewUrl}
                   regions={result.metadata_info?.suspicious_regions || []}
                 />
-              )}
-
-              {/* Tab 2: ELA Preview */}
-              {activeTab === 'ela' && result.metadata_info?.ela_image_path && (
-                <div className="space-y-2">
-                  <div className="relative rounded-xl overflow-hidden border border-slate-800 bg-slate-950 p-2 flex justify-center">
-                    <img src={result.metadata_info.ela_image_path} alt="ELA Heatmap" className="max-h-64 object-contain rounded-lg" />
-                  </div>
-                  <p className="text-[11px] text-slate-400 text-center font-mono">
-                    ELA Variance: {result.metadata_info.ela_score} | Bright pixels indicate local re-compression deltas.
-                  </p>
-                </div>
               )}
             </AnalysisResultCard>
           ) : !loading && (
             <div className="glass-panel p-12 rounded-2xl border-slate-800 text-center flex flex-col items-center justify-center h-full min-h-[400px]">
               <ImageIcon className="w-12 h-12 text-slate-600 mb-3" />
               <p className="text-slate-400 text-sm max-w-sm">
-                Upload any single image or PDF on the left. Sentinel AI will automatically determine file type and highlight tampered regions.
+                Upload any single image or PDF on the left. Sentinel AI will calculate statistical ELA anomaly scores and highlight tampered regions.
               </p>
             </div>
           )}
