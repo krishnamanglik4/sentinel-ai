@@ -50,13 +50,17 @@ def health_check():
         "database": "connected"
     }
 
-# Production SPA Frontend Catch-All Serving
+# Production SPA Frontend Serving & Assets Mount
 frontend_dist = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
+assets_dir = os.path.join(frontend_dist, "assets")
+
+if os.path.exists(assets_dir):
+    app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str):
-    if full_path.startswith("api/"):
-        raise HTTPException(status_code=404, detail="API endpoint not found")
+    if full_path.startswith("api/") or full_path.startswith("uploads/"):
+        raise HTTPException(status_code=404, detail="API resource not found")
     
     file_path = os.path.join(frontend_dist, full_path)
     if os.path.isfile(file_path):
